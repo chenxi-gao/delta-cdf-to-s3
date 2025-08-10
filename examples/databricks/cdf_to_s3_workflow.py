@@ -18,6 +18,7 @@ from air.outbound.destinations.s3_helper.filename_generators import (
     FileNameGeneratorFactory,
 )
 
+# flake8: noqa: F821
 
 # ----------------------------
 # Required Parameters
@@ -131,7 +132,7 @@ def run_workflow():
 
     # Resolve S3 bucket and environment via LocationFinder (Databricks-only)
     try:
-        loc_finder = LocationFinder()
+        loc_finder = LocationFinder(dbutils_instance=dbutils, spark_instance=spark)  # noqa: F821
         write_location = loc_finder.get_write_location_for_keyword(S3_BUCKET_KEYWORD)
         s3_bucket = write_location["bucket"]
         environment = write_location.get("environment") or loc_finder.get_environment()
