@@ -25,6 +25,31 @@ class _CDCReader:
         except Exception as e:
             raise CDCReadException(f"Failed to read CDC changes for source table {table_name} - {e}")
 
+    def read_changes_by_version(
+            self, table_name: str, min_version: int, max_version: int
+    ) -> DataFrame:
+        """Read CDC changes for a Delta table based on version range.
+
+        This uses Delta Change Data Feed with startingVersion and endingVersion.
+
+        :param table_name: Fully qualified Delta table name.
+        :param min_version: Inclusive starting table version.
+        :param max_version: Inclusive ending table version.
+        :return: A DataFrame containing CDC rows within the version range.
+        """
+        try:
+            df = (
+                self.spark.read.format("delta")
+                .option("readChangeFeed", "true")
+                .option("startingVersion", int(min_version))
+                .option("endingVersion", int(max_version))
+                .table(table_name)
+                .filter('_change_type != "update_preimage"')
+            )
+            return df
+        except Exception as e:
+            raise CDCReadException(f"Failed to read CDC changes by version for source table {table_name} - {e}")
+
 
 class CDCLoader:
     def __init__(self, spark: SparkSession):
@@ -77,6 +102,36 @@ class CDCLoader:
                 )
             )
             return staging_df
+        except CDCReadException:
+            raise
+        except Exception as other_exceptions:
+            raise Exception(f"{other_exceptions}")
+
+    def process_table_changes_by_version(
+        self, table_name: str, min_version: int, max_version: int
+    ) -> DataFrame:
+        """
+        Processes CDC changes based on table version range.
+
+        This variant does not require partitions or merge keys. It returns the
+        union of relevant CDC change types within the provided version range.
+
+        :param table_name: Fully qualified Delta table name.
+        :param min_version: Inclusive starting table version.
+        :param max_version: Inclusive ending table version.
+        :return: A DataFrame containing filtered CDC rows.
+        """
+        try:
+            logging.info(
+                f"Reading changes by version for {table_name} from v{min_version} to v{max_version}"
+            )
+            cdc_changes_df = self.cdc_reader.read_changes_by_version(
+                table_name=table_name,
+                min_version=min_version,
+                max_version=max_version,
+            )
+            # Return raw CDC changes between versions (excluding update_preimage already)
+            return cdc_changes_df
         except CDCReadException:
             raise
         except Exception as other_exceptions:
