@@ -21,6 +21,6 @@ class DestinationFactory:
             from ..destinations.s3 import S3Destination
             # For S3, do not use jdbc_url/jdbc_props; accept explicit s3_options via kwargs
             s3_options = kwargs.get("s3_options", {}) or {}
-            return S3Destination({}, auth_strategy, target_schema, dest_type, spark, s3_options=s3_options)
+            return S3Destination(spark=spark, s3_options=s3_options)
         else:
             raise ValueError(f"Unsupported destination type: {dest_type}")

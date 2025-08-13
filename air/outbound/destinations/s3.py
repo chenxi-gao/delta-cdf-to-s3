@@ -4,31 +4,26 @@ from datetime import datetime
 from typing import Optional, Dict
 from pyspark.sql import DataFrame
 
-from ..commons.destination import DestinationBase
+from ..commons.destination_object_storage import DestinationObjectStorageBase
+from ..commons.destination import DestinationType
 from .s3_helper.data_writer import S3DataWriter
 from .s3_helper.filename_generators import FileNameGeneratorFactory
 
 
-class S3Destination(DestinationBase):
-    """Destination implementation for writing DataFrames to S3.
+class S3Destination(DestinationObjectStorageBase):
+    """S3 destination for writing DataFrames to S3 object storage.
 
-    This destination focuses on writing files to S3 buckets with optional
-    filename generation rules. Transactional and DDL-related methods are
-    implemented as no-ops.
+    - Inherits object-storage base class (no JDBC-specific concepts)
+    - Supports incremental extraction by version and status recording
+    - Provides access check via Unity Catalog external locations (best-effort)
     """
 
     def __init__(
         self,
-        jdbc_props,
-        auth_strategy,
-        target_schema,
-        destination_type,
         spark,
         s3_options: Dict | None = None,
     ):
-        # Initialize base to keep common behaviors (e.g., metadata handling)
-        # For S3 we do not use jdbc/auth values beyond base initialization
-        super().__init__(jdbc_props, auth_strategy, target_schema, destination_type, spark)
+        super().__init__(spark=spark, destination_type=DestinationType.S3, options=s3_options or {})
         self.logger = logging.getLogger(self.__class__.__name__)
         self.writer = S3DataWriter()
         self.s3_options: Dict = s3_options or {}
@@ -83,82 +78,50 @@ class S3Destination(DestinationBase):
             self.logger.warning(f"Filename generator failed: {e}. Falling back to default name.")
             return fallback_name
 
-    # --- DestinationBase required methods ---
-    def _connect(self):
-        # No external connection needed for S3 writes
-        return None
-
-    def _source_target_mapping(self, spark_type) -> str:
-        # Not applicable for S3 file writes
-        return ""
-
-    def _target_schema_exists(self, create_on_failure: bool = True):
-        # Not applicable for S3; schema concept is not used
-        return None
-
-    def _destination_truncate(self, table_name: str):
-        # Not applicable for S3; writer mode controls overwrite behavior
-        return None
-
-    def _drop_target_table_if_exists(self, qualified_target_table_name: str):
-        # Not applicable for S3
-        return None
-
-    def _create_target_table_with_schema(self, table_schema: set, qualified_target_table_name: str):
-        # Not applicable for S3
-        return None
-
-    def _push_historical_load(self, df: DataFrame, target_table_name: str) -> bool:
-        raise NotImplementedError("Historical full loads are not supported for S3 destination.")
-
-    def _push_cdc_loads(
-        self,
-        staging_df: DataFrame,
-        target_table_name: str,
-        join_condition: str,
-        value_columns: list,
-        update_columns: str
-    ) -> bool:
-        # For S3, CDC merge is not applicable. We append a timestamped snapshot for traceability.
+    # --- DestinationObjectStorageBase required implementations ---
+    def write_data(self, df: DataFrame, output_filename: str, **kwargs) -> bool:
         if not self.s3_bucket:
-            raise Exception("S3 bucket is not configured for CDC writes.")
+            raise Exception("S3 bucket is not configured for writes.")
 
-        effective_prefix_parts = [p for p in [self.s3_prefix, self.target_schema, target_table_name, "cdc"] if p]
+        subdir = kwargs.get("subdir", "cdc")
+        effective_prefix_parts = [p for p in [self.s3_prefix, output_filename, subdir] if p]
         effective_prefix = "/".join(effective_prefix_parts)
-        fallback_name = self._default_file_name(target_table_name, suffix="cdc")
-        base_params = {"start_date": datetime.utcnow(), "end_date": datetime.utcnow()}
+        fallback_name = self.default_file_name(output_filename, suffix=subdir)
+
+        base_params = kwargs.get("base_params") or {"start_date": datetime.utcnow(), "end_date": datetime.utcnow()}
         file_name = self._generate_file_name(base_params, self.file_generator_params, fallback_name)
 
         success = self.writer.write_to_s3(
-            df=staging_df,
+            df=df,
             s3_bucket=self.s3_bucket,
             s3_prefix=effective_prefix,
             file_name=file_name,
             output_format=self.output_format,
-            mode="append",
+            mode=kwargs.get("mode", "append"),
             partition_by=self.partition_by,
             coalesce=self.coalesce,
-            skip_access_check=True
+            skip_access_check=kwargs.get("skip_access_check", True)
         )
         if not success:
-            raise Exception("CDC write returned False")
+            raise Exception("S3 write returned False")
         return True
 
-    def _disable_auto_commit(self):
-        return None
+    def access_check(self) -> Dict:
+        try:
+            from .s3_helper.access_checker import S3AccessChecker
+            checker = S3AccessChecker(spark=None)
+            target_url = self.s3_options.get("url", "")
+            return checker.check_path_access(target_url)
+        except Exception as e:
+            self.logger.warning(f"Access check failed: {e}")
+            return {"accessible": None, "error": str(e)}
 
-    def _enable_auto_commit(self):
-        return None
-
-    def _begin_transaction(self):
-        return None
-
-    def _rollback(self):
-        return None
-
-    def _commit(self):
-        return None
-
-    # Explicitly disable historical loads entrypoint
-    def handle_all_historical_loads(self, *args, **kwargs):
-        raise NotImplementedError("Historical full loads are not supported for S3 destination.")
+    def generate_file_name(
+        self,
+        filename_keyword: str,
+        suffix: Optional[str] = None,
+        base_params: Optional[Dict] = None,
+        extra_params: Optional[Dict] = None,
+    ) -> str:
+        fallback_name = self.default_file_name(filename_keyword, suffix)
+        return self._generate_file_name(base_params or {}, extra_params or {}, fallback_name)
