@@ -82,10 +82,9 @@ class S3Destination(DestinationObjectStorageBase):
         if not self.s3_bucket:
             raise Exception("S3 bucket is not configured for writes.")
 
-        subdir = kwargs.get("subdir", "cdc")
-        effective_prefix_parts = [p for p in [self.s3_prefix, output_filename, subdir] if p]
+        effective_prefix_parts = [p for p in [self.s3_prefix, output_filename] if p]
         effective_prefix = "/".join(effective_prefix_parts)
-        fallback_name = self.default_file_name(output_filename, suffix=subdir)
+        fallback_name = self.default_file_name(output_filename)
 
         base_params = kwargs.get("base_params") or {"start_date": datetime.utcnow(), "end_date": datetime.utcnow()}
         file_name = self._generate_file_name(base_params, self.file_generator_params, fallback_name)
@@ -96,10 +95,10 @@ class S3Destination(DestinationObjectStorageBase):
             s3_prefix=effective_prefix,
             file_name=file_name,
             output_format=self.output_format,
-            mode=kwargs.get("mode", "append"),
+            mode=kwargs.get("mode", "overwrite"),
             partition_by=self.partition_by,
             coalesce=self.coalesce,
-            skip_access_check=kwargs.get("skip_access_check", True)
+            skip_access_check=kwargs.get("skip_access_check", False)
         )
         if not success:
             raise Exception("S3 write returned False")

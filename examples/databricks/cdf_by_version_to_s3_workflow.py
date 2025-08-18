@@ -17,13 +17,24 @@ from new_air.outbound.destinations.s3 import S3Destination
 
 # flake8: noqa: F821
 
+# create logger instance
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# ensure root logger is configured correctly
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+
+for handler in root_logger.handlers:
+    handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+
 # ----------------------------
 # Required Parameters
 # ----------------------------
 # Table Configuration
 CATALOG_NAME = "abacus_dev_catalog"
 SCHEMA_NAME = "bronze"
-TABLE_NAME = "cdf_test_demo_table"
+TABLE_NAME = "test_table_for_integrated_framework"
 
 # S3 Configuration
 S3_BUCKET_KEYWORD = "data-lake"
@@ -112,7 +123,7 @@ def _get_last_run_time(
 
 
 def run_workflow():
-    logging.basicConfig(level=logging.INFO)
+    logging.info(f"Running workflow")
 
     # Spark session
     spark = SparkSession.builder.getOrCreate()
@@ -140,7 +151,7 @@ def run_workflow():
     if last_processed_version_saved is None:
         min_version, max_version = _get_version_bounds(spark, qualified_source_table)
         if min_version is None or max_version is None:
-            logging.info("No history found for source table; nothing to process.")
+            logger.info("No history found for source table; nothing to process.")
             return
         # If no last_run_time recorded, use earliest commit timestamp from history as last_run_date
         if last_run_date is None:
@@ -150,7 +161,7 @@ def run_workflow():
         # Use last processed + 1 as lower bound; upper bound is current latest commit version
         _, current_latest_version = _get_version_bounds(spark, qualified_source_table)
         if current_latest_version is None or int(current_latest_version) <= int(last_processed_version_saved):
-            logging.info("No new versions detected; nothing to process.")
+            logger.info("No new versions detected; nothing to process.")
             return
         min_version = int(last_processed_version_saved) + 1
         max_version = int(current_latest_version)
@@ -165,7 +176,7 @@ def run_workflow():
             max_version=int(max_version),
         )
     except Exception as e:
-        logging.error(f"CDC extraction by version failed: {e}")
+        logger.error(f"CDC extraction by version failed: {e}")
         return
 
     # Resolve S3 bucket and environment via LocationFinder (Databricks-only)
@@ -175,7 +186,7 @@ def run_workflow():
         s3_bucket = write_location["bucket"]
         environment = write_location.get("environment") or loc_finder.get_environment()
     except Exception as e:
-        logging.error(f"Failed to resolve S3 location: {e}")
+        logger.error(f"Failed to resolve S3 location: {e}")
         return
 
     # Instantiate S3Destination to handle filename generation and writes
@@ -200,13 +211,10 @@ def run_workflow():
         write_ok = s3_dest.write_data(
             df=staging_df,
             output_filename=source_table_only,
-            base_params=base_params,
-            subdir="cdc",
-            mode="append",
-            skip_access_check=False,
+            base_params=base_params
         )
     except Exception as e:
-        logging.error(f"Write to S3 via destination failed: {e}")
+        logger.error(f"Write to S3 via destination failed: {e}")
         write_ok = False
 
     # Update version-based status only on success
@@ -219,14 +227,11 @@ def run_workflow():
                 last_processed_version=last_processed_version,
                 last_run_time=this_run_time,
             )
-            logging.info("Version-based load status updated successfully.")
+            logger.info("Version-based load status updated successfully.")
         except Exception as e:
-            logging.error(f"Failed to update version-based load status: {e}")
+            logger.error(f"Failed to update version-based load status: {e}")
     else:
-        logging.error("Write to S3 failed; version-based load status not updated.")
+        logger.error("Write to S3 failed; version-based load status not updated.")
 
 
-if __name__ == "__main__":
-    run_workflow()
-
-
+run_workflow()
