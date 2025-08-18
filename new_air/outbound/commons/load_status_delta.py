@@ -146,7 +146,7 @@ class PipelineHelperOutbound(BaseModel, ABC):
 
     def _execute_dml(self, sql: str):
         try:
-            logging.info("Executing DML {sql}")
+            logging.info(f"Executing DML {sql}")
             return self._spark.sql(sql)
         except AnalysisException as e:
             # use error class for 14.3 LTS or error message for backwards compatibility with 11.3 LTS
@@ -158,7 +158,7 @@ class PipelineHelperOutbound(BaseModel, ABC):
 
     def _execute_dml_version_based(self, sql: str):
         try:
-            logging.info("Executing DML {sql}")
+            logging.info(f"Executing DML {sql}")
             return self._spark.sql(sql)
         except AnalysisException as e:
             # use error class for 14.3 LTS or error message for backwards compatibility with 11.3 LTS
