@@ -24,7 +24,6 @@ class S3Destination(DestinationObjectStorageBase):
         s3_options: Dict | None = None,
     ):
         super().__init__(spark=spark, destination_type=DestinationType.S3, options=s3_options or {})
-        self.logger = logging.getLogger(self.__class__.__name__)
         self.writer = S3DataWriter()
         self.s3_options: Dict = s3_options or {}
         self.s3_bucket, self.s3_prefix = self._parse_s3_url(self.s3_options.get("url", ""))
@@ -75,7 +74,7 @@ class S3Destination(DestinationObjectStorageBase):
             generator = FileNameGeneratorFactory.create_generator(self.file_generator_type)
             return generator.generate_filename(base_params, **(extra_params or {}))
         except Exception as e:
-            self.logger.warning(f"Filename generator failed: {e}. Falling back to default name.")
+            logging.warning(f"Filename generator failed: {e}. Falling back to default name.")
             return fallback_name
 
     # --- DestinationObjectStorageBase required implementations ---
@@ -113,7 +112,7 @@ class S3Destination(DestinationObjectStorageBase):
             target_url = self.s3_options.get("url", "")
             return checker.check_path_access(target_url)
         except Exception as e:
-            self.logger.warning(f"Access check failed: {e}")
+            logging.warning(f"Access check failed: {e}")
             return {"accessible": None, "error": str(e)}
 
     def generate_file_name(

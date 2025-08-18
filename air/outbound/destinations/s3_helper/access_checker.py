@@ -3,9 +3,6 @@ import re
 from pyspark.sql import SparkSession
 
 
-logger = logging.getLogger(__name__)
-
-
 class S3AccessChecker:
     """S3 Access Checker for Unity Catalog External Locations"""
 
@@ -40,11 +37,11 @@ class S3AccessChecker:
             return locations
 
         except Exception as e:
-            logger.warning(f"Unable to retrieve external locations: {str(e)}")
-            logger.warning("This might be due to:")
-            logger.warning("          - Insufficient permissions to view Unity Catalog metadata")
-            logger.warning("          - Unity Catalog not being properly configured")
-            logger.warning("          - Running in an environment without Unity Catalog support")
+            logging.warning(f"Unable to retrieve external locations: {str(e)}")
+            logging.warning("This might be due to:")
+            logging.warning("          - Insufficient permissions to view Unity Catalog metadata")
+            logging.warning("          - Unity Catalog not being properly configured")
+            logging.warning("          - Running in an environment without Unity Catalog support")
             return []
 
     def normalize_s3_path(self, path):
@@ -156,7 +153,7 @@ class S3AccessChecker:
         except Exception as e:
             result['recommendations'].append(f"[ERROR] Error during access check: {str(e)}")
             result['accessible'] = None  # Unknown state
-            logger.error(f"Error during access check: {str(e)}")
+            logging.error(f"Error during access check: {str(e)}")
             return result
 
     def _find_closest_bucket_match(self, s3_path, locations):

@@ -12,14 +12,6 @@ class LocationFinder:
         dbutils_instance=None,
         spark_instance=None
     ):
-        self.logger = logging.getLogger(self.__class__.__name__)
-        self.logger.setLevel(getattr(logging, log_level.upper()))
-        if not self.logger.handlers:
-            handler = logging.StreamHandler()
-            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-            handler.setFormatter(formatter)
-            self.logger.addHandler(handler)
-
         if dbutils_instance is not None:
             self.dbutils = dbutils_instance
         else:
@@ -55,7 +47,7 @@ class LocationFinder:
                     self.dbutils.notebook.entry_point.getDbutils()
                     .notebook().getContext().workspaceId().get()
                 )
-                self.logger.info(f"Retrieved workspace ID: {self._workspace_id}")
+                logging.info(f"Retrieved workspace ID: {self._workspace_id}")
             except Exception as e:
                 raise RuntimeError(f"Failed to get workspace ID: {str(e)}")
         return self._workspace_id
@@ -82,7 +74,7 @@ class LocationFinder:
                 ) for row in locations
             ]
         except Exception as e:
-            self.logger.error(f"Failed to retrieve external locations: {str(e)}")
+            logging.error(f"Failed to retrieve external locations: {str(e)}")
             raise
 
     def _parse_s3_url(self, url: str) -> Optional[Dict[str, str]]:
@@ -97,7 +89,7 @@ class LocationFinder:
         return None
 
     def _extract_customer_and_env_from_s3(self) -> Dict[str, str]:
-        self.logger.info(
+        logging.info(
             f"Searching for S3 external locations with Workspace ID: {self.workspace_id}"
         )
         try:
@@ -107,7 +99,7 @@ class LocationFinder:
                     parsed = self._parse_s3_url(url)
                     if parsed:
                         bucket_name = parsed['bucket']
-                        self.logger.info(
+                        logging.info(
                             f"Found matching S3 location - URL: {url}, Bucket: {bucket_name}"
                         )
                         bucket_parts = bucket_name.split('-')
@@ -124,7 +116,7 @@ class LocationFinder:
                                 'environment': env_name,
                                 'location_name': name,
                             }
-                            self.logger.info(
+                            logging.info(
                                 f"Extracted - Customer: {customer_name}, Environment: {env_name}"
                             )
                             return result
@@ -132,11 +124,11 @@ class LocationFinder:
                 f"No S3 external location found for workspace ID: {self.workspace_id}"
             )
         except Exception as e:
-            self.logger.error(f"Error extracting customer and environment: {str(e)}")
+            logging.error(f"Error extracting customer and environment: {str(e)}")
             raise
 
     def find_target_s3_location(self, customer_name: str, environment: str, keyword: str) -> Dict[str, str]:
-        self.logger.info(
+        logging.info(
             f"Searching for S3 location - Customer: {customer_name}, "
             f"Environment: {environment}, Keyword: {keyword}"
         )
@@ -166,7 +158,7 @@ class LocationFinder:
                 f"Customer: {customer_name}, Environment: {environment}, Keyword: {keyword}"
             )
         except Exception as e:
-            self.logger.error(f"Error finding target S3 location: {str(e)}")
+            logging.error(f"Error finding target S3 location: {str(e)}")
             raise
 
     def get_write_location_for_keyword(self, keyword: str, custom_workspace_id: Optional[str] = None) -> Dict[str, str]:
@@ -217,4 +209,4 @@ class LocationFinder:
     def reset_cache(self):
         self._workspace_id = None
         self._workspace_info = None
-        self.logger.info("Cache reset completed")
+        logging.info("Cache reset completed")

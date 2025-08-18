@@ -1,5 +1,4 @@
 import datetime
-import logging
 from abc import ABC, abstractmethod
 from typing import Optional, Dict
 
@@ -23,7 +22,6 @@ class DestinationObjectStorageBase(ABC):
         self.spark = spark
         self.destination_type = destination_type
         self.options: Dict = options or {}
-        self.logger = logging.getLogger(self.__class__.__name__)
 
     # -----------------------------
     # Incremental extraction (version-based)
@@ -88,36 +86,36 @@ class DestinationObjectStorageBase(ABC):
     # -----------------------------
     # Status recording helpers (version-based)
     # -----------------------------
-    def compute_latest_version_and_timestamp(self, df: DataFrame) -> tuple[Optional[int], Optional[datetime.datetime]]:
-        """Compute the latest commit version and timestamp from a CDC DataFrame.
-        Returns (latest_version, latest_timestamp) which can be None if df is empty.
+    def compute_last_processed_version(self, df: DataFrame) -> Optional[int]:
+        """Compute the latest commit version from a CDC DataFrame.
+        Returns latest_version which can be None if df is empty.
         """
         if df is None:
-            return None, None
-        # Avoid df.isEmpty for compatibility
+            return None
         if df.limit(1).count() == 0:
-            return None, None
+            return None
 
         agg_row = df.agg(
-            F.max(F.col("_commit_version")).alias("latest_version"),
-            F.max(F.col("_commit_timestamp")).alias("latest_ts"),
+            F.max(F.col("_commit_version")).alias("last_processed_version"),
         ).collect()[0]
 
-        latest_version = agg_row["latest_version"] if agg_row and agg_row["latest_version"] is not None else None
-        latest_ts = agg_row["latest_ts"] if agg_row and agg_row["latest_ts"] is not None else None
-        return latest_version, latest_ts
+        return (
+            agg_row["last_processed_version"]
+            if agg_row and agg_row["last_processed_version"] is not None
+            else None
+        )
 
     def update_version_based_status(
         self,
         helper: PipelineHelperOutbound,
         table_name: str,
-        latest_version: Optional[int],
-        latest_updated_timestamp: Optional[datetime.datetime],
+        last_processed_version: Optional[int],
+        last_run_time: Optional[datetime.datetime],
     ) -> None:
-        """Upsert the latest version/timestamp to version-based status table.
-        If latest_version is None, this is a no-op.
+        """Upsert the latest version and last_run_time to version-based status table.
+        If last_processed_version is None, this is a no-op.
         """
-        if latest_version is None:
+        if last_processed_version is None:
             return
         helper.create_version_based_table()
         helper.insert_or_update_load_status_version_based(
@@ -125,8 +123,8 @@ class DestinationObjectStorageBase(ABC):
             data={
                 "table_name": table_name,
                 "destination_type": self.destination_type.value,
-                "latest_updated_timestamp": latest_updated_timestamp,
-                "latest_version": int(latest_version),
+                "last_run_time": last_run_time,
+                "last_processed_version": int(last_processed_version),
             },
         )
 
@@ -147,11 +145,11 @@ class DestinationObjectStorageBase(ABC):
         """
         cdc_df = self.process_table_changes_by_version(source_table_name, min_version, max_version)
         write_ok = self.write_data(cdc_df, output_filename, **(write_kwargs or {}))
-        latest_version, latest_ts = self.compute_latest_version_and_timestamp(cdc_df)
+        last_processed_version = self.compute_last_processed_version(cdc_df)
         self.update_version_based_status(
             status_helper,
             table_name=output_filename,
-            latest_version=latest_version,
-            latest_updated_timestamp=latest_ts,
+            last_processed_version=last_processed_version,
+            last_run_time=datetime.datetime.utcnow(),
         )
         return write_ok

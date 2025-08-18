@@ -49,8 +49,8 @@ class LoadStatusOutbound(BaseModel, ABC):
 # Version-based load status model
 class LoadStatusOutboundVersion(BaseModel, ABC):
     table_name: str
-    latest_updated_timestamp: Optional[datetime.datetime] = None
-    latest_version: Optional[int] = None
+    last_run_time: Optional[datetime.datetime] = None
+    last_processed_version: Optional[int] = None
     destination_type: DestinationType
 
     class Config:
@@ -65,8 +65,8 @@ class LoadStatusOutboundVersion(BaseModel, ABC):
         else:
             return LoadStatusOutboundVersion(
                 table_name=row.table_name,
-                latest_updated_timestamp=row.latest_updated_timestamp,
-                latest_version=row.latest_version,
+                last_run_time=row.last_run_time,
+                last_processed_version=row.last_processed_version,
                 destination_type=row.destination_type
             )
 
@@ -74,8 +74,8 @@ class LoadStatusOutboundVersion(BaseModel, ABC):
     def get_load_status_schema():
         return StructType([
             StructField('table_name', StringType(), False),
-            StructField('latest_updated_timestamp', TimestampType(), True),
-            StructField('latest_version', LongType(), True),
+            StructField('last_run_time', TimestampType(), True),
+            StructField('last_processed_version', LongType(), True),
             StructField('destination_type', StringType(), True)
         ])
 
@@ -130,8 +130,8 @@ class PipelineHelperOutbound(BaseModel, ABC):
         self._execute_dml_version_based(f"""
            CREATE TABLE IF NOT EXISTS {self.qualified_load_status_version_based} (
                     table_name STRING NOT NULL,
-                    latest_updated_timestamp TIMESTAMP,
-                    latest_version BIGINT,
+                    last_run_time TIMESTAMP,
+                    last_processed_version BIGINT,
                     destination_type STRING NOT NULL,
                     PRIMARY KEY (table_name, destination_type)
                 )
