@@ -6,15 +6,15 @@ from typing import Optional, Tuple
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql import functions as F
 
-from air.outbound.commons.cdc_loader import CDCLoader
-from air.outbound.commons.load_status_delta import (
+from new_air.outbound.commons.cdc_loader import CDCLoader
+from new_air.outbound.commons.load_status_delta import (
     PipelineHelperOutbound,
     PipelineLayerOutbound,
 )
-from air.outbound.commons.destination import DestinationType
-from air.outbound.destinations.s3_helper.location_finder import LocationFinder
-from air.outbound.destinations.s3_helper.data_writer import S3DataWriter
-from air.outbound.destinations.s3_helper.filename_generators import (
+from new_air.outbound.commons.destination import DestinationType
+from new_air.outbound.destinations.s3_helper.location_finder import LocationFinder
+from new_air.outbound.destinations.s3_helper.data_writer import S3DataWriter
+from new_air.outbound.destinations.s3_helper.filename_generators import (
     FileNameGeneratorFactory,
 )
 
