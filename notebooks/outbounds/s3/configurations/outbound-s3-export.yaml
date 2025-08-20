@@ -1,0 +1,19 @@
+settings:
+  catalog: "abacus_dev_catalog"
+  schema: "bronze"
+  destination_type: "s3"
+  groups:
+    - group_name: "oynx_interop_reports"
+      max_retries: 1
+      alert_on_failure: 'false'
+      alert_emails: []
+      # Weekly schedule at 2 AM US/Eastern every Sunday
+      schedule: "0 0 2 ? * SUN *"
+      tables:
+        - source_table: "test_table_for_integrated_framework"
+          s3_bucket_keyword: "data-lake"
+          s3_prefix: "cdf-process-test/oynx-reports"
+          s3_filename_generator: "oynx_report"
+          s3_output_format: "parquet"
+          auto_find_s3_by_keyword: 'true'
+          s3_bucket_full_url: ""
