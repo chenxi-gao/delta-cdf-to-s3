@@ -2,17 +2,13 @@ import logging
 from datetime import datetime
 from pyspark.sql import SparkSession
 
-from .access_checker import S3AccessChecker
-
 
 class S3DataWriter:
     """S3 Data Writer with Unity Catalog Integration (cdf2 implementation)."""
 
-    def __init__(self, check_access: bool = True):
+    def __init__(self):
         self.spark = SparkSession.builder.getOrCreate()
         self.supported_formats = ["json", "parquet", "csv"]
-        self.check_access = check_access
-        self.access_checker = S3AccessChecker(self.spark) if check_access else None
 
     def _validate_format(self, output_format: str) -> bool:
         if output_format.lower() not in self.supported_formats:
@@ -30,14 +26,6 @@ class S3DataWriter:
             return f"{s3_bucket}/{s3_prefix}/{file_name}"
         return f"{s3_bucket}/{file_name}"
 
-    def _check_s3_access(self, s3_path: str) -> None:
-        if not self.check_access or not self.access_checker:
-            return
-        logging.info("Checking S3 access permissions...")
-        access_result = self.access_checker.check_path_access(s3_path)
-        for recommendation in access_result['recommendations']:
-            logging.info(recommendation)
-
     def write_to_s3(
         self,
         df,
@@ -48,7 +36,6 @@ class S3DataWriter:
         mode: str = "overwrite",
         partition_by=None,
         coalesce: int | None = None,
-        skip_access_check: bool = False,
         **kwargs,
     ) -> bool:
         try:
@@ -65,9 +52,6 @@ class S3DataWriter:
 
             output_format = output_format.lower()
             s3_path = self._build_s3_path(s3_bucket, s3_prefix, file_name)
-
-            if not skip_access_check:
-                self._check_s3_access(s3_path)
 
             logging.info("Writing DataFrame to S3...")
             logging.info(f"Path: {s3_path}")

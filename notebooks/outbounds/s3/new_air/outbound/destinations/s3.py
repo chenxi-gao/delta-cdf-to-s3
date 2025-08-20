@@ -15,7 +15,6 @@ class S3Destination(DestinationObjectStorageBase):
 
     - Inherits object-storage base class (no JDBC-specific concepts)
     - Supports incremental extraction by version and status recording
-    - Provides access check via Unity Catalog external locations (best-effort)
     """
 
     def __init__(
@@ -97,22 +96,11 @@ class S3Destination(DestinationObjectStorageBase):
             output_format=self.output_format,
             mode=kwargs.get("mode", "overwrite"),
             partition_by=self.partition_by,
-            coalesce=self.coalesce,
-            skip_access_check=kwargs.get("skip_access_check", False)
+            coalesce=self.coalesce
         )
         if not success:
             raise Exception("S3 write returned False")
         return True
-
-    def access_check(self) -> Dict:
-        try:
-            from .s3_helper.access_checker import S3AccessChecker
-            checker = S3AccessChecker(spark=None)
-            target_url = self.s3_options.get("url", "")
-            return checker.check_path_access(target_url)
-        except Exception as e:
-            logging.warning(f"Access check failed: {e}")
-            return {"accessible": None, "error": str(e)}
 
     def generate_file_name(
         self,

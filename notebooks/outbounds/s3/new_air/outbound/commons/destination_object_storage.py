@@ -15,17 +15,17 @@ class DestinationObjectStorageBase(ABC):
 
     Provides common interfaces for incremental extraction by version,
     filename generation helpers, and status recording using version-based
-    load status table. Subclasses must implement access checks and write logic.
+    load status table. Subclasses must implement write logic.
     """
 
     def __init__(self, spark: SparkSession, destination_type: DestinationType, options: Optional[Dict] = None):
         self.spark = spark
         self.destination_type = destination_type
         self.options: Dict = options or {}
-
     # -----------------------------
     # Incremental extraction (version-based)
     # -----------------------------
+
     def process_table_changes_by_version(self, table_name: str, min_version: int, max_version: int) -> DataFrame:
         """Extract CDC changes for a Delta table between versions.
 
@@ -51,19 +51,9 @@ class DestinationObjectStorageBase(ABC):
         raise NotImplementedError
 
     # -----------------------------
-    # Access check (to be implemented by subclasses)
-    # -----------------------------
-    @abstractmethod
-    def access_check(self) -> Dict:
-        """Check whether the destination is accessible.
-
-        :return: A dictionary describing the accessibility status and any hints
-        """
-        raise NotImplementedError
-
-    # -----------------------------
     # Filename helpers
     # -----------------------------
+
     def default_file_name(self, filename_keyword: str, suffix: Optional[str] = None) -> str:
         timestamp_str = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
         base = f"{filename_keyword}_{timestamp_str}"
