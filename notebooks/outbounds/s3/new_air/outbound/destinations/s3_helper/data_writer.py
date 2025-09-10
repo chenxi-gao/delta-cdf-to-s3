@@ -53,13 +53,19 @@ class S3DataWriter:
 
             output_format = output_format.lower()
 
+            # Drop metadata columns if present
+            metadata_columns = ["_change_type", "_commit_version", "_commit_timestamp"]
+            columns_to_drop = [c for c in metadata_columns if c in df.columns]
+            if columns_to_drop:
+                df = df.drop(*columns_to_drop)
+
             # Build final single-file path and a temporary directory for Spark writer
             final_file_name = f"{file_name}.{output_format}"
             final_file_path = self._build_s3_path(s3_bucket, s3_prefix, final_file_name)
             tmp_dir_name = f"_tmp_{file_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
             tmp_output_dir = self._build_s3_path(s3_bucket, s3_prefix, tmp_dir_name)
 
-            # Handle empty DataFrame by creating an empty file directly
+            # Handle empty DataFrame
             if df_count == 0:
                 try:
                     if mode == "overwrite":
@@ -67,8 +73,11 @@ class S3DataWriter:
                             self.dbutils.fs.rm(final_file_path, True)
                         except Exception:
                             pass
-                    # Create empty object; dbutils.fs.put expects text, write nothing
-                    self.dbutils.fs.put(final_file_path, "", True)
+                    # For JSON, write an empty array; for others, create empty file
+                    if output_format == "json":
+                        self.dbutils.fs.put(final_file_path, "[]", True)
+                    else:
+                        self.dbutils.fs.put(final_file_path, "", True)
                     logging.info(f"Successfully created empty file at {final_file_path}")
                     self._show_write_summary(final_file_path, output_format, df_count)
                     return True
@@ -89,14 +98,25 @@ class S3DataWriter:
 
             # Format-specific options
             if output_format == "json":
-                json_options = {
-                    "compression": kwargs.get("compression", None),
-                    "dateFormat": kwargs.get("dateFormat", "yyyy-MM-dd"),
-                    "timestampFormat": kwargs.get("timestampFormat", "yyyy-MM-dd'T'HH:mm:ss.SSSZ"),
-                    "encoding": kwargs.get("encoding", "UTF-8"),
-                }
-                json_options = {k: v for k, v in json_options.items() if v is not None}
-                writer.options(**json_options).json(tmp_output_dir)
+                # Stream out as a single JSON array with indentation and trailing commas
+                def _to_array_lines(iterator):
+                    try:
+                        first = next(iterator)
+                    except StopIteration:
+                        yield "[]"
+                        return
+                    yield "["
+                    prev = first
+                    for current in iterator:
+                        yield "  " + prev + ","
+                        prev = current
+                    yield "  " + prev
+                    yield "]"
+
+                # In PySpark, DataFrame.toJSON() returns an RDD[str], so do not access .rdd again
+                json_lines_rdd = df.toJSON().coalesce(1).mapPartitions(_to_array_lines)
+                json_lines_df = self.spark.createDataFrame(json_lines_rdd.map(lambda s: (s,)), ["value"]) 
+                json_lines_df.write.mode(mode).text(tmp_output_dir)
             elif output_format == "parquet":
                 parquet_options = {"compression": kwargs.get("compression", "snappy")}
                 writer.options(**parquet_options).parquet(tmp_output_dir)
