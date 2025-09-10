@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime
 from pyspark.sql import SparkSession
+from pyspark.dbutils import DBUtils
 
 
 class S3DataWriter:
@@ -9,6 +10,8 @@ class S3DataWriter:
     def __init__(self):
         self.spark = SparkSession.builder.getOrCreate()
         self.supported_formats = ["json", "parquet", "csv"]
+        # Initialize DBUtils for Databricks filesystem operations (Databricks environment)
+        self.dbutils = DBUtils(self.spark)
 
     def _validate_format(self, output_format: str) -> bool:
         if output_format.lower() not in self.supported_formats:
@@ -34,8 +37,6 @@ class S3DataWriter:
         file_name: str,
         output_format: str = "parquet",
         mode: str = "overwrite",
-        partition_by=None,
-        coalesce: int | None = None,
         **kwargs,
     ) -> bool:
         try:
@@ -51,25 +52,42 @@ class S3DataWriter:
                 return False
 
             output_format = output_format.lower()
-            s3_path = self._build_s3_path(s3_bucket, s3_prefix, file_name)
 
-            logging.info("Writing DataFrame to S3...")
-            logging.info(f"Path: {s3_path}")
+            # Build final single-file path and a temporary directory for Spark writer
+            final_file_name = f"{file_name}.{output_format}"
+            final_file_path = self._build_s3_path(s3_bucket, s3_prefix, final_file_name)
+            tmp_dir_name = f"_tmp_{file_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+            tmp_output_dir = self._build_s3_path(s3_bucket, s3_prefix, tmp_dir_name)
+
+            # Handle empty DataFrame by creating an empty file directly
+            if df_count == 0:
+                try:
+                    if mode == "overwrite":
+                        try:
+                            self.dbutils.fs.rm(final_file_path, True)
+                        except Exception:
+                            pass
+                    # Create empty object; dbutils.fs.put expects text, write nothing
+                    self.dbutils.fs.put(final_file_path, "", True)
+                    logging.info(f"Successfully created empty file at {final_file_path}")
+                    self._show_write_summary(final_file_path, output_format, df_count)
+                    return True
+                except Exception as e:
+                    logging.error(f"Failed to create empty file: {e}")
+                    return False
+
+            logging.info("Writing DataFrame to S3 via temporary directory for single-file output...")
+            logging.info(f"Temp dir: {tmp_output_dir}")
+            logging.info(f"Final file: {final_file_path}")
             logging.info(f"Format: {output_format}")
             logging.info(f"Records: {df_count}")
 
-            if coalesce and isinstance(coalesce, int) and coalesce > 0:
-                df = df.coalesce(coalesce)
-                logging.info(f"Coalesced to {coalesce} partition(s)")
+            # Force single output file
+            df = df.coalesce(1)
 
             writer = df.write.mode(mode)
 
-            if partition_by:
-                if isinstance(partition_by, str):
-                    partition_by = [partition_by]
-                writer = writer.partitionBy(*partition_by)
-                logging.info(f"Partitioned by: {', '.join(partition_by)}")
-
+            # Format-specific options
             if output_format == "json":
                 json_options = {
                     "compression": kwargs.get("compression", None),
@@ -78,10 +96,10 @@ class S3DataWriter:
                     "encoding": kwargs.get("encoding", "UTF-8"),
                 }
                 json_options = {k: v for k, v in json_options.items() if v is not None}
-                writer.options(**json_options).json(s3_path)
+                writer.options(**json_options).json(tmp_output_dir)
             elif output_format == "parquet":
                 parquet_options = {"compression": kwargs.get("compression", "snappy")}
-                writer.options(**parquet_options).parquet(s3_path)
+                writer.options(**parquet_options).parquet(tmp_output_dir)
             elif output_format == "csv":
                 csv_options = {
                     "header": kwargs.get("header", True),
@@ -93,10 +111,41 @@ class S3DataWriter:
                     "compression": kwargs.get("compression", None),
                 }
                 csv_options = {k: v for k, v in csv_options.items() if v is not None}
-                writer.options(**csv_options).csv(s3_path)
+                writer.options(**csv_options).csv(tmp_output_dir)
 
-            logging.info(f"Successfully wrote data to {s3_path}")
-            self._show_write_summary(s3_path, output_format, df_count)
+            # Find the single part file produced by Spark
+            tmp_files = self.dbutils.fs.ls(tmp_output_dir)
+            part_files = [f.path for f in tmp_files if f.name.startswith("part-")]
+            if len(part_files) == 0:
+                logging.error("No part file found in temporary output directory. Nothing to move.")
+                # Cleanup temp dir
+                try:
+                    self.dbutils.fs.rm(tmp_output_dir, True)
+                except Exception:
+                    pass
+                return False
+            if len(part_files) > 1:
+                logging.warning("Multiple part files found; proceeding with the first one due to coalesce(1)")
+            src_part_file = part_files[0]
+
+            # Overwrite behavior on final single file
+            if mode == "overwrite":
+                try:
+                    self.dbutils.fs.rm(final_file_path, True)
+                except Exception:
+                    pass
+
+            # Move and rename to final destination
+            self.dbutils.fs.mv(src_part_file, final_file_path)
+
+            # Remove temporary directory
+            try:
+                self.dbutils.fs.rm(tmp_output_dir, True)
+            except Exception as e:
+                logging.warning(f"Failed to remove temporary directory {tmp_output_dir}: {e}")
+
+            logging.info(f"Successfully wrote single file to {final_file_path}")
+            self._show_write_summary(final_file_path, output_format, df_count)
             return True
         except Exception as e:
             error_msg = str(e)

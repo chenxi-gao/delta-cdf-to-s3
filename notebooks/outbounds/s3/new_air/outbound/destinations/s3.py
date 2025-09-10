@@ -94,9 +94,7 @@ class S3Destination(DestinationObjectStorageBase):
             s3_prefix=effective_prefix,
             file_name=file_name,
             output_format=self.output_format,
-            mode=kwargs.get("mode", "overwrite"),
-            partition_by=self.partition_by,
-            coalesce=self.coalesce
+            mode=kwargs.get("mode", "overwrite")
         )
         if not success:
             raise Exception("S3 write returned False")
