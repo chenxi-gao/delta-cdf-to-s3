@@ -32,7 +32,7 @@ class S3DataWriter:
     def _build_local_tmp_path(self, dir_name: str) -> str:
         # Spark requires the file scheme to use the driver's local /tmp directory
         clean_dir_name = dir_name.strip("/")
-        return f"file:/tmp/{clean_dir_name}"
+        return f"/tmp/{clean_dir_name}"
 
     def write_to_s3(
         self,
