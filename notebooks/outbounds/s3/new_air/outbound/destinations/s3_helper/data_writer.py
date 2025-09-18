@@ -1,4 +1,5 @@
 import logging
+import os
 from datetime import datetime
 from pyspark.sql import SparkSession
 from pyspark.dbutils import DBUtils
@@ -12,6 +13,8 @@ class S3DataWriter:
         self.supported_formats = ["json", "parquet", "csv"]
         # Initialize DBUtils for Databricks filesystem operations (Databricks environment)
         self.dbutils = DBUtils(self.spark)
+        # Ensure /tmp exists and is writable before any local temp usage
+        self._validate_tmp_dir()
 
     def _validate_format(self, output_format: str) -> bool:
         if output_format.lower() not in self.supported_formats:
@@ -30,9 +33,24 @@ class S3DataWriter:
         return f"{s3_bucket}/{file_name}"
 
     def _build_local_tmp_path(self, dir_name: str) -> str:
-        # Spark requires the file scheme to use the driver's local /tmp directory
         clean_dir_name = dir_name.strip("/")
         return f"/tmp/{clean_dir_name}"
+
+    def _validate_tmp_dir(self, tmp_dir: str = "/tmp") -> None:
+        """Validate that tmp_dir exists and is writable; exit if not."""
+        try:
+            if not os.path.isdir(tmp_dir):
+                logging.error(f"Temporary directory does not exist: {tmp_dir}")
+                raise SystemExit(1)
+            if not os.access(tmp_dir, os.W_OK | os.X_OK):
+                logging.error(f"Temporary directory is not writable/executable: {tmp_dir}")
+                raise SystemExit(1)
+            logging.info(f"Temporary directory is available and writable: {tmp_dir}")
+        except Exception as e:
+            if isinstance(e, SystemExit):
+                raise
+            logging.error(f"Failed to validate temporary directory {tmp_dir}: {e}")
+            raise SystemExit(1)
 
     def write_to_s3(
         self,
@@ -69,12 +87,6 @@ class S3DataWriter:
             final_file_path = self._build_s3_path(s3_bucket, s3_prefix, final_file_name)
             tmp_dir_name = f"_tmp_{file_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
             tmp_output_dir = self._build_local_tmp_path(tmp_dir_name)
-
-            # Ensure leftover local temp directory is cleared before writing
-            try:
-                self.dbutils.fs.rm(tmp_output_dir, True)
-            except Exception:
-                pass
 
             # Handle empty DataFrame
             if df_count == 0:
