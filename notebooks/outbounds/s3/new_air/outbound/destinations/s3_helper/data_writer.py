@@ -29,6 +29,11 @@ class S3DataWriter:
             return f"{s3_bucket}/{s3_prefix}/{file_name}"
         return f"{s3_bucket}/{file_name}"
 
+    def _build_local_tmp_path(self, dir_name: str) -> str:
+        # Spark requires the file scheme to use the driver's local /tmp directory
+        clean_dir_name = dir_name.strip("/")
+        return f"file:/tmp/{clean_dir_name}"
+
     def write_to_s3(
         self,
         df,
@@ -63,7 +68,13 @@ class S3DataWriter:
             final_file_name = f"{file_name}.{output_format}"
             final_file_path = self._build_s3_path(s3_bucket, s3_prefix, final_file_name)
             tmp_dir_name = f"_tmp_{file_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
-            tmp_output_dir = self._build_s3_path(s3_bucket, s3_prefix, tmp_dir_name)
+            tmp_output_dir = self._build_local_tmp_path(tmp_dir_name)
+
+            # Ensure leftover local temp directory is cleared before writing
+            try:
+                self.dbutils.fs.rm(tmp_output_dir, True)
+            except Exception:
+                pass
 
             # Handle empty DataFrame
             if df_count == 0:
@@ -115,7 +126,7 @@ class S3DataWriter:
 
                 # In PySpark, DataFrame.toJSON() returns an RDD[str], so do not access .rdd again
                 json_lines_rdd = df.toJSON().coalesce(1).mapPartitions(_to_array_lines)
-                json_lines_df = self.spark.createDataFrame(json_lines_rdd.map(lambda s: (s,)), ["value"]) 
+                json_lines_df = self.spark.createDataFrame(json_lines_rdd.map(lambda s: (s,)), ["value"])
                 json_lines_df.write.mode(mode).text(tmp_output_dir)
             elif output_format == "parquet":
                 parquet_options = {"compression": kwargs.get("compression", "snappy")}
