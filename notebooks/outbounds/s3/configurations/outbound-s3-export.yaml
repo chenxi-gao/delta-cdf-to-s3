@@ -14,6 +14,6 @@ settings:
           s3_bucket_keyword: "data-lake"
           s3_prefix: "cdf-process-test/oynx-reports"
           s3_filename_generator: "oynx_report"
-          s3_output_format: "parquet"
+          s3_output_format: "json"
           auto_find_s3_by_keyword: 'true'
           s3_bucket_full_url: ""
